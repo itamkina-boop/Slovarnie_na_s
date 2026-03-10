@@ -106,26 +106,6 @@
             text-align: center;
         }
 
-        .sink-warning {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #ff6b6b;
-            font-size: 24px;
-            font-weight: bold;
-            text-shadow: 0 0 10px rgba(255,0,0,0.5);
-            z-index: 25;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-            white-space: nowrap;
-        }
-
-        .sink-warning.show {
-            opacity: 1;
-        }
-
         .vowel-keyboard {
             position: absolute;
             bottom: 0;
@@ -249,8 +229,6 @@
             </div>
         </div>
         
-        <div class="sink-warning" id="sinkWarning">⚠️ Кот тонет! ⚠️</div>
-        
         <div class="vowel-keyboard" id="vowelKeyboard">
             <button class="vowel-btn" data-letter="а">А</button>
             <button class="vowel-btn" data-letter="е">Е</button>
@@ -272,8 +250,8 @@
                 CAT_SIZE: 80,
                 PEARL_SIZE: 50,
                 CAT_SPEED: 0.08,
-                SINK_SPEED: 0.3,
-                SINK_DELAY: 2000,
+                SINK_SPEED: 0.15,        // Уменьшил скорость погружения для плавности
+                SINK_DELAY: 2000,          // Задержка перед началом погружения (2 секунды)
                 BUBBLE_COUNT: 20,
                 MAX_LIVES: 3
             };
@@ -336,7 +314,6 @@
             const ctx = canvas.getContext('2d');
             const scoreElement = document.getElementById('scoreCount');
             const vowelKeyboard = document.getElementById('vowelKeyboard');
-            const sinkWarning = document.getElementById('sinkWarning');
             const lifeIcons = [
                 document.getElementById('life1'),
                 document.getElementById('life2'),
@@ -350,6 +327,7 @@
             let targetX = 400, targetY = 300;
             let lastMoveTime = Date.now();
             let isSinking = false;
+            let sinkDepth = 0; // Для плавного увеличения наклона при погружении
 
             let pearls = [];
             let score = 0;
@@ -459,6 +437,9 @@
                 cat.y = canvas.height / 2;
                 targetX = cat.x;
                 targetY = cat.y;
+                isSinking = false;
+                sinkDepth = 0;
+                lastMoveTime = Date.now();
                 
                 pearls = [];
                 for (let i = 0; i < 12; i++) {
@@ -544,11 +525,14 @@
                 
                 targetX = (x - rect.left) * scaleX;
                 targetY = (y - rect.top) * scaleY;
+                
+                // Ограничиваем, чтобы кот не уходил слишком глубоко
                 targetY = Math.min(targetY, canvas.height - 100);
+                targetY = Math.max(targetY, 50); // Не даем выплыть слишком высоко
                 
                 lastMoveTime = Date.now();
                 isSinking = false;
-                sinkWarning.classList.remove('show');
+                sinkDepth = 0; // Сбрасываем наклон при движении
             }
 
             // ==================== ОБРАБОТЧИКИ ====================
@@ -591,23 +575,28 @@
 
             // ==================== ОБНОВЛЕНИЕ ====================
             function update() {
-                // Движение кота
+                // Движение кота к цели
                 cat.x += (targetX - cat.x) * SETTINGS.CAT_SPEED;
                 cat.y += (targetY - cat.y) * SETTINGS.CAT_SPEED;
                 
-                // Проверка на бездействие
+                // Проверка на бездействие - плавное погружение
                 const timeSinceLastMove = Date.now() - lastMoveTime;
                 if (timeSinceLastMove > SETTINGS.SINK_DELAY) {
                     isSinking = true;
-                    cat.y += SETTINGS.SINK_SPEED;
-                    if (cat.y > canvas.height - 50) cat.y = canvas.height - 50;
                     
-                    // Показываем предупреждение
-                    if (timeSinceLastMove > SETTINGS.SINK_DELAY + 1000) {
-                        sinkWarning.classList.add('show');
+                    // Плавно увеличиваем наклон при погружении
+                    sinkDepth = Math.min(sinkDepth + 0.02, 0.3);
+                    
+                    // Плавно опускаем кота вниз
+                    cat.y += SETTINGS.SINK_SPEED * (1 + sinkDepth); // Чем глубже, тем быстрее
+                    
+                    // Ограничиваем, чтобы кот не ушел за пределы экрана
+                    if (cat.y > canvas.height - 40) {
+                        cat.y = canvas.height - 40;
                     }
                 } else {
-                    sinkWarning.classList.remove('show');
+                    isSinking = false;
+                    sinkDepth = Math.max(sinkDepth - 0.02, 0); // Плавно выпрямляем
                 }
                 
                 // Обновление жемчужин
@@ -750,13 +739,16 @@
                     ctx.restore();
                 });
                 
-                // Кот
+                // Кот с эффектом погружения
                 ctx.save();
                 ctx.translate(cat.x, cat.y);
+                
+                // Плавный наклон при погружении
                 if (isSinking) {
-                    ctx.rotate(0.1);
-                    ctx.globalAlpha = 0.8;
+                    ctx.rotate(0.1 + sinkDepth * 0.5); // Увеличиваем наклон с глубиной
+                    ctx.globalAlpha = 1 - sinkDepth * 0.3; // Становится чуть прозрачнее с глубиной
                 }
+                
                 if (images.cat.complete) {
                     ctx.drawImage(images.cat, -SETTINGS.CAT_SIZE/2, -SETTINGS.CAT_SIZE/2,
                                  SETTINGS.CAT_SIZE, SETTINGS.CAT_SIZE);
