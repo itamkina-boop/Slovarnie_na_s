@@ -43,10 +43,43 @@
             display: block;
         }
 
-        .score-container {
+        .top-panel {
             position: absolute;
             top: 16px;
-            right: 20px;
+            left: 0;
+            right: 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 20px;
+            z-index: 20;
+            pointer-events: none;
+        }
+
+        .lives-container {
+            display: flex;
+            gap: 8px;
+            background: rgba(10, 30, 40, 0.6);
+            backdrop-filter: blur(4px);
+            padding: 8px 16px;
+            border-radius: 40px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .life-icon {
+            width: 30px;
+            height: 30px;
+            object-fit: contain;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));
+            transition: all 0.3s ease;
+        }
+
+        .life-icon.lost {
+            opacity: 0.3;
+            filter: grayscale(1);
+        }
+
+        .score-container {
             display: flex;
             align-items: center;
             gap: 8px;
@@ -55,8 +88,6 @@
             padding: 8px 16px 8px 12px;
             border-radius: 40px;
             border: 1px solid rgba(255, 255, 255, 0.2);
-            z-index: 20;
-            pointer-events: none;
         }
 
         .score-pearl {
@@ -73,6 +104,26 @@
             text-shadow: 0 2px 5px rgba(0,0,0,0.7);
             min-width: 30px;
             text-align: center;
+        }
+
+        .sink-warning {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff6b6b;
+            font-size: 24px;
+            font-weight: bold;
+            text-shadow: 0 0 10px rgba(255,0,0,0.5);
+            z-index: 25;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            white-space: nowrap;
+        }
+
+        .sink-warning.show {
+            opacity: 1;
         }
 
         .vowel-keyboard {
@@ -121,6 +172,17 @@
             background: linear-gradient(145deg, #1f5a7a, #123b52);
         }
 
+        .vowel-btn.error {
+            background: linear-gradient(145deg, #8f2b2b, #6b1a1a);
+            animation: shake 0.3s ease;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+
         @media (min-width: 1024px) {
             .vowel-keyboard {
                 display: none;
@@ -142,9 +204,20 @@
                 font-size: 28px;
             }
             
+            .top-panel {
+                padding: 0 12px;
+            }
+            
+            .lives-container {
+                padding: 5px 10px;
+            }
+            
+            .life-icon {
+                width: 22px;
+                height: 22px;
+            }
+            
             .score-container {
-                top: 10px;
-                right: 12px;
                 padding: 5px 12px 5px 8px;
             }
             
@@ -163,6 +236,21 @@
     <div class="game-container">
         <canvas id="gameCanvas"></canvas>
         
+        <div class="top-panel">
+            <div class="lives-container" id="livesContainer">
+                <img src="cat_swim.png" class="life-icon" id="life1" alt="жизнь">
+                <img src="cat_swim.png" class="life-icon" id="life2" alt="жизнь">
+                <img src="cat_swim.png" class="life-icon" id="life3" alt="жизнь">
+            </div>
+            
+            <div class="score-container">
+                <img src="pearl_idle.png" class="score-pearl" alt="жемчужина">
+                <span class="score-count" id="scoreCount">0</span>
+            </div>
+        </div>
+        
+        <div class="sink-warning" id="sinkWarning">⚠️ Кот тонет! ⚠️</div>
+        
         <div class="vowel-keyboard" id="vowelKeyboard">
             <button class="vowel-btn" data-letter="а">А</button>
             <button class="vowel-btn" data-letter="е">Е</button>
@@ -175,11 +263,6 @@
             <button class="vowel-btn" data-letter="ю">Ю</button>
             <button class="vowel-btn" data-letter="я">Я</button>
         </div>
-        
-        <div class="score-container">
-            <img src="pearl_idle.png" class="score-pearl" alt="жемчужина">
-            <span class="score-count" id="scoreCount">0</span>
-        </div>
     </div>
 
     <script>
@@ -191,7 +274,8 @@
                 CAT_SPEED: 0.08,
                 SINK_SPEED: 0.3,
                 SINK_DELAY: 2000,
-                BUBBLE_COUNT: 20
+                BUBBLE_COUNT: 20,
+                MAX_LIVES: 3
             };
 
             // ==================== СЛОВАРНЫЕ СЛОВА ====================
@@ -252,6 +336,12 @@
             const ctx = canvas.getContext('2d');
             const scoreElement = document.getElementById('scoreCount');
             const vowelKeyboard = document.getElementById('vowelKeyboard');
+            const sinkWarning = document.getElementById('sinkWarning');
+            const lifeIcons = [
+                document.getElementById('life1'),
+                document.getElementById('life2'),
+                document.getElementById('life3')
+            ];
             
             const images = { cat: null, bg: null, pearl: null };
             let loadedCount = 0;
@@ -263,6 +353,7 @@
 
             let pearls = [];
             let score = 0;
+            let lives = SETTINGS.MAX_LIVES;
 
             let activeWord = null;
             let currentMissingIndex = 0;
@@ -271,13 +362,16 @@
             let bubbles = [];
 
             let affirmation = { text: '', visible: false, timer: 0 };
+            
+            // Анимационные эффекты
+            let collectAnimations = [];
 
             // ==================== ЗАГРУЗКА КАРТИНОК ====================
             function loadImages() {
                 images.cat = new Image();
                 images.cat.src = 'cat_swim.png';
                 images.cat.onload = imageLoaded;
-                images.cat.onerror = imageLoaded; // Считаем загруженным даже если ошибка
+                images.cat.onerror = imageLoaded;
 
                 images.bg = new Image();
                 images.bg.src = 'background_ocean.PNG';
@@ -313,6 +407,7 @@
                 }
                 
                 updateScore();
+                updateLivesDisplay();
                 requestAnimationFrame(gameLoop);
             }
 
@@ -324,7 +419,8 @@
                     vy: (Math.random() - 0.5) * 0.3,
                     phase: Math.random() * Math.PI * 2,
                     scale: 1,
-                    collecting: false
+                    collecting: false,
+                    pulseTime: 0
                 });
             }
 
@@ -332,10 +428,63 @@
                 scoreElement.textContent = score;
             }
 
+            function updateLivesDisplay() {
+                lifeIcons.forEach((icon, index) => {
+                    if (index < lives) {
+                        icon.classList.remove('lost');
+                    } else {
+                        icon.classList.add('lost');
+                    }
+                });
+            }
+
             function showAffirmation() {
                 affirmation.text = PRAISES[Math.floor(Math.random() * PRAISES.length)];
                 affirmation.visible = true;
                 affirmation.timer = 120;
+            }
+
+            function gameOver() {
+                alert('Игра окончена! Кот утонул... Нажмите ОК для перезапуска.');
+                resetGame();
+            }
+
+            function resetGame() {
+                lives = SETTINGS.MAX_LIVES;
+                score = 0;
+                updateScore();
+                updateLivesDisplay();
+                
+                cat.x = canvas.width / 2;
+                cat.y = canvas.height / 2;
+                targetX = cat.x;
+                targetY = cat.y;
+                
+                pearls = [];
+                for (let i = 0; i < 12; i++) {
+                    spawnPearl();
+                }
+                
+                closeWord();
+            }
+
+            function loseLife() {
+                lives--;
+                updateLivesDisplay();
+                
+                // Анимация потери жизни
+                if (lives >= 0) {
+                    lifeIcons[lives].style.transform = 'scale(0.8)';
+                    setTimeout(() => {
+                        if (lifeIcons[lives]) {
+                            lifeIcons[lives].style.transform = 'scale(1)';
+                        }
+                    }, 200);
+                }
+                
+                if (lives <= 0) {
+                    gameOver();
+                }
             }
 
             function openWord(wordData) {
@@ -351,6 +500,11 @@
             function closeWord() {
                 activeWord = null;
                 vowelKeyboard.classList.remove('show');
+                
+                // Убираем класс ошибки со всех кнопок
+                document.querySelectorAll('.vowel-btn').forEach(btn => {
+                    btn.classList.remove('error');
+                });
             }
 
             function checkLetter(letter) {
@@ -368,8 +522,19 @@
                         closeWord();
                     }
                     return true;
+                } else {
+                    // Неправильная буква - теряем жизнь
+                    loseLife();
+                    
+                    // Визуальная обратная связь
+                    const btn = document.querySelector(`[data-letter="${letter}"]`);
+                    if (btn) {
+                        btn.classList.add('error');
+                        setTimeout(() => btn.classList.remove('error'), 300);
+                    }
+                    
+                    return false;
                 }
-                return false;
             }
 
             function handleInput(x, y) {
@@ -383,6 +548,7 @@
                 
                 lastMoveTime = Date.now();
                 isSinking = false;
+                sinkWarning.classList.remove('show');
             }
 
             // ==================== ОБРАБОТЧИКИ ====================
@@ -425,23 +591,38 @@
 
             // ==================== ОБНОВЛЕНИЕ ====================
             function update() {
+                // Движение кота
                 cat.x += (targetX - cat.x) * SETTINGS.CAT_SPEED;
                 cat.y += (targetY - cat.y) * SETTINGS.CAT_SPEED;
                 
-                if (Date.now() - lastMoveTime > SETTINGS.SINK_DELAY) {
+                // Проверка на бездействие
+                const timeSinceLastMove = Date.now() - lastMoveTime;
+                if (timeSinceLastMove > SETTINGS.SINK_DELAY) {
                     isSinking = true;
                     cat.y += SETTINGS.SINK_SPEED;
                     if (cat.y > canvas.height - 50) cat.y = canvas.height - 50;
+                    
+                    // Показываем предупреждение
+                    if (timeSinceLastMove > SETTINGS.SINK_DELAY + 1000) {
+                        sinkWarning.classList.add('show');
+                    }
+                } else {
+                    sinkWarning.classList.remove('show');
                 }
                 
+                // Обновление жемчужин
                 pearls.forEach(p => {
                     p.phase += 0.02;
                     p.y += Math.sin(p.phase) * 0.1 + (p.vy || 0);
                     if (p.y > canvas.height - 100) p.y = canvas.height - 100;
                     if (p.y < 40) p.y = 40;
+                    
+                    // Пульсация
+                    p.pulseTime = (p.pulseTime || 0) + 1;
                 });
                 
-                if (!activeWord) {
+                // Проверка столкновений с жемчужинами
+                if (!activeWord && lives > 0) {
                     for (let i = pearls.length - 1; i >= 0; i--) {
                         const p = pearls[i];
                         if (p.collecting) continue;
@@ -451,6 +632,15 @@
                         const dist = Math.sqrt(dx*dx + dy*dy);
                         
                         if (dist < SETTINGS.CAT_SIZE/2 + SETTINGS.PEARL_SIZE/2) {
+                            // Добавляем анимацию сбора
+                            collectAnimations.push({
+                                x: p.x,
+                                y: p.y,
+                                scale: 1,
+                                alpha: 1,
+                                timer: 30
+                            });
+                            
                             p.collecting = true;
                             const wordIndex = Math.floor(Math.random() * WORDS.length);
                             openWord(WORDS[wordIndex]);
@@ -461,12 +651,22 @@
                     }
                 }
                 
+                // Обновление анимаций сбора
+                collectAnimations = collectAnimations.filter(anim => {
+                    anim.timer--;
+                    anim.scale = 1 + (30 - anim.timer) * 0.03;
+                    anim.alpha = anim.timer / 30;
+                    return anim.timer > 0;
+                });
+                
+                // Обновление аффирмации
                 if (affirmation.timer > 0) {
                     affirmation.timer--;
                 } else {
                     affirmation.visible = false;
                 }
                 
+                // Обновление пузырьков
                 bubbles.forEach(b => {
                     b.y -= b.speed;
                     if (b.y < -20) {
@@ -480,6 +680,7 @@
             function draw() {
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 
+                // Фон
                 if (images.bg.complete) {
                     ctx.drawImage(images.bg, 0, 0, canvas.width, canvas.height);
                 } else {
@@ -487,6 +688,7 @@
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
                 }
                 
+                // Пузырьки
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
                 bubbles.forEach(b => {
                     ctx.beginPath();
@@ -494,11 +696,19 @@
                     ctx.fill();
                 });
                 
+                // Жемчужины
                 pearls.forEach(p => {
                     if (p.collecting) return;
+                    
                     ctx.save();
                     ctx.translate(p.x, p.y);
+                    
+                    // Эффект пульсации
+                    const pulse = Math.sin(p.pulseTime * 0.1) * 0.05 + 1;
+                    ctx.scale(pulse, pulse);
+                    
                     ctx.rotate(Math.sin(p.phase) * 0.05);
+                    
                     if (images.pearl.complete) {
                         ctx.drawImage(images.pearl, -SETTINGS.PEARL_SIZE/2, -SETTINGS.PEARL_SIZE/2, 
                                      SETTINGS.PEARL_SIZE, SETTINGS.PEARL_SIZE);
@@ -508,9 +718,39 @@
                         ctx.arc(0, 0, SETTINGS.PEARL_SIZE/2, 0, Math.PI*2);
                         ctx.fill();
                     }
+                    
                     ctx.restore();
                 });
                 
+                // Анимации сбора жемчужин
+                collectAnimations.forEach(anim => {
+                    ctx.save();
+                    ctx.translate(anim.x, anim.y);
+                    ctx.globalAlpha = anim.alpha;
+                    ctx.scale(anim.scale, anim.scale);
+                    
+                    // Рисуем увеличивающуюся и исчезающую жемчужину
+                    if (images.pearl.complete) {
+                        ctx.drawImage(images.pearl, -SETTINGS.PEARL_SIZE/2, -SETTINGS.PEARL_SIZE/2, 
+                                     SETTINGS.PEARL_SIZE, SETTINGS.PEARL_SIZE);
+                    }
+                    
+                    // Добавляем звездочки
+                    ctx.fillStyle = '#ffd700';
+                    ctx.globalAlpha = anim.alpha * 0.8;
+                    for (let i = 0; i < 4; i++) {
+                        const angle = (i * Math.PI/2) + anim.timer * 0.1;
+                        const dx = Math.cos(angle) * 20;
+                        const dy = Math.sin(angle) * 20;
+                        ctx.beginPath();
+                        ctx.arc(dx, dy, 3, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    
+                    ctx.restore();
+                });
+                
+                // Кот
                 ctx.save();
                 ctx.translate(cat.x, cat.y);
                 if (isSinking) {
@@ -528,6 +768,7 @@
                 }
                 ctx.restore();
                 
+                // Окно с заданием
                 if (activeWord) {
                     ctx.fillStyle = 'rgba(0, 20, 30, 0.85)';
                     ctx.shadowColor = 'rgba(0,0,0,0.5)';
@@ -552,8 +793,14 @@
                     ctx.font = '16px sans-serif';
                     ctx.fillStyle = '#8ab3cf';
                     ctx.fillText('Вставь гласную', canvas.width/2, canvas.height/2 + 45);
+                    
+                    // Индикатор прогресса
+                    const progress = userAnswers.length / activeWord.missing.length;
+                    ctx.fillStyle = '#4caf50';
+                    ctx.fillRect(canvas.width/2 - 100, canvas.height/2 + 50, 200 * progress, 5);
                 }
                 
+                // Аффирмация
                 if (affirmation.visible) {
                     ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
                     ctx.shadowBlur = 15;
@@ -583,7 +830,9 @@
             }
 
             function gameLoop() {
-                update();
+                if (lives > 0) {
+                    update();
+                }
                 draw();
                 requestAnimationFrame(gameLoop);
             }
